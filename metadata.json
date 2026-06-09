@@ -1,0 +1,6 @@
+{
+  "name": "Aetheris OS",
+  "description": "Enterprise Multi-Agent AI Operating System supporting intelligent autonomous execution, dynamic workflows, RAG engines, memory exploration, and human-in-the-loop approval centers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
