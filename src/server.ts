@@ -32,10 +32,7 @@ app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 const checkApiKey = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const key = process.env["GEMINI_API_KEY"];
   if (!key || key.trim() === "" || key === "dummy_key" || key === "MY_GEMINI_API_KEY") {
-    res.status(401).json({
-      error: "GEMINI_API_KEY is not configured in your environment. Please define it in your Secrets configuration panel (Settings > Secrets) in Google AI Studio before launching standard or autonomous missions."
-    });
-    return;
+    console.warn("[Aetheris OS] GEMINI_API_KEY is not configured or is a placeholder. Engaging automatic Sandbox/Simulation mode.");
   }
   next();
 };

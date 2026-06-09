@@ -33,8 +33,8 @@ export function getGeminiClient(): GoogleGenAI {
  */
 export async function generateContentWithRetry(
   params: Parameters<GoogleGenAI["models"]["generateContent"]>[0],
-  maxRetries = 3,
-  initialDelay = 1000
+  maxRetries = 1,
+  initialDelay = 800
 ): Promise<Awaited<ReturnType<GoogleGenAI["models"]["generateContent"]>>> {
   let attempt = 0;
   while (true) {
@@ -44,9 +44,15 @@ export async function generateContentWithRetry(
       attempt++;
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // Check if transient error
+      const isQuotaExceeded = errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("limit");
       const is503 = errorMessage.includes("503") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("high demand") || errorMessage.includes("Service Unavailable");
       const is429 = errorMessage.includes("429") || errorMessage.includes("rate limit") || errorMessage.includes("exhausted");
+      
+      if (isQuotaExceeded) {
+        console.warn(`[Gemini Request] Hard quota boundary hit: ${errorMessage}. Disengaging retries, triggering high-fidelity dynamic fallback instantly.`);
+        throw error;
+      }
+
       const isTransient = is503 || is429;
 
       if (isTransient && attempt <= maxRetries) {
@@ -349,7 +355,41 @@ const INITIAL_STATE: DBState = {
   },
 };
 
-const STORE_PATH = join(process.cwd(), "session_store.json");
+function getStorePath(): string {
+  const localPath = join(process.cwd(), "session_store.json");
+  let canWriteLocal = false;
+  try {
+    if (fs.existsSync(localPath)) {
+      fs.accessSync(localPath, fs.constants.W_OK);
+      canWriteLocal = true;
+    } else {
+      fs.writeFileSync(localPath, "{}", "utf8");
+      fs.unlinkSync(localPath);
+      canWriteLocal = true;
+    }
+  } catch {
+    canWriteLocal = false;
+  }
+
+  if (canWriteLocal) {
+    return localPath;
+  }
+
+  const tempPath = join("/tmp", "session_store.json");
+  try {
+    if (!fs.existsSync(tempPath)) {
+      if (fs.existsSync(localPath)) {
+        const content = fs.readFileSync(localPath, "utf8");
+        fs.writeFileSync(tempPath, content, "utf8");
+      }
+    }
+  } catch (err) {
+    console.error("[Store] Failed to seed /tmp/session_store.json from localPath", err);
+  }
+  return tempPath;
+}
+
+const STORE_PATH = getStorePath();
 
 export class Store {
   private static state: DBState | null = null;
