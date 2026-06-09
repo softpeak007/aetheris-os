@@ -394,6 +394,10 @@ const STORE_PATH = getStorePath();
 export class Store {
   private static state: DBState | null = null;
 
+  static set(state: DBState): void {
+    this.state = state;
+  }
+
   static get(): DBState {
     if (this.state) return this.state;
     try {

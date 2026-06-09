@@ -53,6 +53,18 @@ import {
   getLocalFallbackReport,
 } from "./server-helper";
 
+// Stateless session state hydration middleware for Vercel Serverless compatibility
+app.use((req, res, next) => {
+  if (req.body && req.body.currentState) {
+    try {
+      Store.set(req.body.currentState);
+    } catch (err) {
+      console.warn("[Aetheris OS State Hydrator] Failed custom client state hydration:", err);
+    }
+  }
+  next();
+});
+
 /**
  * Save mission to history helper
  */

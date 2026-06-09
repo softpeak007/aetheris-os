@@ -247,8 +247,34 @@ export class App implements OnDestroy {
 
   constructor() {
     if (this.isBrowser) {
+      try {
+        const cached = localStorage.getItem("aetheris_system_state");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object" && parsed.metrics) {
+            this.appState.set(parsed);
+          }
+        }
+      } catch (err) {
+        console.warn("[Local Storage Sync] Failed to load cached system state:", err);
+      }
       this.refreshState();
     }
+
+    // Effect to auto-persist state updates in local storage for stateless serverless environments
+    effect(() => {
+      if (!this.isBrowser) return;
+      const state = this.appState();
+      try {
+        if (state) {
+          localStorage.setItem("aetheris_system_state", JSON.stringify(state));
+        } else {
+          localStorage.removeItem("aetheris_system_state");
+        }
+      } catch (err) {
+        console.warn("[Local Storage Sync] Failed to persist system state:", err);
+      }
+    });
 
     // Effect to handle Auto-stepping interval loop
     effect(() => {
@@ -282,7 +308,30 @@ export class App implements OnDestroy {
 
   // Safe Fetch & JSON parse wrapper
   private async safeFetch<T>(url: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(url, options);
+    let finalOptions = options;
+    if (options && options.method && ["POST", "PUT", "DELETE"].includes(options.method.toUpperCase())) {
+      finalOptions = { ...options };
+      let bodyObj: Record<string, unknown> = {};
+      if (options.body && typeof options.body === "string") {
+        try {
+          bodyObj = JSON.parse(options.body);
+        } catch {
+          // fallback if body is not parseable JSON
+        }
+      }
+      const s = this.appState();
+      if (s) {
+        bodyObj["currentState"] = s;
+      }
+      finalOptions.body = JSON.stringify(bodyObj);
+      const headers = new Headers(options.headers || {});
+      if (!headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+      finalOptions.headers = headers;
+    }
+
+    const res = await fetch(url, finalOptions);
     
     let isJson = false;
     const contentType = res.headers.get("Content-Type") || "";
