@@ -130,7 +130,7 @@
         >
           <mat-icon class="text-base sm:text-lg">terminal</mat-icon>
           <span class="flex-1 truncate">Logs</span>
-          @if (appState() && appState()!.logs.length > 0) {
+          @if (appState()?.logs && (appState()?.logs || []).length > 0) {
             <span class="px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-mono text-[9px] sm:text-[10px] border border-cyan-500/20">{{ appState()?.logs?.length }}</span>
           }
         </button>
@@ -161,7 +161,7 @@
         >
           <mat-icon class="text-base sm:text-lg">folder_shared</mat-icon>
           <span class="flex-1 truncate">RAG</span>
-          @if (appState() && appState()!.documents.length > 0) {
+          @if (appState()?.documents && (appState()?.documents || []).length > 0) {
             <span class="px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded bg-teal-500/10 text-teal-400 font-mono text-[9px] sm:text-[10px] border border-teal-500/20">{{ appState()?.documents?.length }}</span>
           }
         </button>
@@ -176,7 +176,7 @@
         >
           <mat-icon class="text-base sm:text-lg">psychology</mat-icon>
           <span class="flex-1 truncate">Memory</span>
-          @if (appState() && appState()!.memories.length > 0) {
+          @if (appState()?.memories && (appState()?.memories || []).length > 0) {
             <span class="px-1 sm:px-1.5 py-0.2 sm:py-0.5 rounded bg-fuchsia-500/10 text-fuchsia-400 font-mono text-[9px] sm:text-[10px] border border-fuchsia-500/20">{{ appState()?.memories?.length }}</span>
           }
         </button>
@@ -215,7 +215,7 @@
         >
           <mat-icon class="text-base sm:text-lg">history</mat-icon>
           <span class="flex-1 truncate">History Log</span>
-          @if (appState()?.missionHistory && appState()!.missionHistory!.length > 0) {
+          @if (appState()?.missionHistory && (appState()?.missionHistory || []).length > 0) {
             <span class="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-mono text-[10px] border border-cyan-500/20">{{ appState()?.missionHistory?.length }}</span>
           }
         </button>
@@ -340,7 +340,7 @@
 
             <!-- FINAL COMPREHENSIVE INTELLIGENCE REPORT -->
             @if (appState()?.autonomousMission?.status === 'completed'; as r) {
-              @let report = appState()!.autonomousMission!.report;
+              @let report = appState()?.autonomousMission?.report;
               @if (report) {
                 <!-- EXCLUSIVE EXPORT & PRESENTATION HUD CONTROL -->
                 <div class="glass-panel p-4 rounded-xl border border-cyan-500/20 bg-[#0d0d12]/90 flex flex-col md:flex-row justify-between items-center gap-4 text-left animate-fade-in">
@@ -1552,7 +1552,7 @@
           </div>
 
           <!-- DETAILED TIMELINES LATENCY HISTOGRAM -->
-          @if (appState() && appState()!.metrics.latency.length > 0) {
+          @if (appState()?.metrics?.latency && (appState()?.metrics?.latency || []).length > 0) {
             <div class="glass-panel rounded-2xl p-6 border border-white/5 text-left">
               <h3 class="text-xs font-mono text-slate-400 uppercase tracking-widest font-bold mb-4">Historical Latency Waveform Graph</h3>
 
@@ -1614,7 +1614,7 @@
             </div>
           </div>
 
-          @if (!appState()?.missionHistory || appState()!.missionHistory!.length === 0) {
+          @if (!appState()?.missionHistory || (appState()?.missionHistory || []).length === 0) {
             <div class="glass-panel p-12 text-center rounded-2xl border border-dashed border-white/10 space-y-3">
               <mat-icon class="text-4xl text-slate-600">history_toggle_off</mat-icon>
               <h4 class="text-sm font-bold text-slate-300">No Historical Records Found</h4>
