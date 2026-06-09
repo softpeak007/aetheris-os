@@ -273,13 +273,40 @@ export class App implements OnDestroy {
     return String(err);
   }
 
+  // Safe Fetch & JSON parse wrapper
+  private async safeFetch<T>(url: string, options?: RequestInit): Promise<T> {
+    const res = await fetch(url, options);
+    
+    let isJson = false;
+    const contentType = res.headers.get("Content-Type") || "";
+    if (contentType.includes("application/json")) {
+      isJson = true;
+    }
+    
+    let data: unknown;
+    if (isJson) {
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Unable to parse a valid JSON response from the backend.");
+      }
+    } else {
+      const text = await res.text();
+      throw new Error(text || `Request failed with HTTP status code ${res.status}`);
+    }
+    
+    if (!res.ok) {
+      throw new Error(data && typeof data === "object" && "error" in data ? String((data as { error: unknown }).error) : `Request failed with status ${res.status}`);
+    }
+    
+    return data as T;
+  }
+
   // Fetch full system state from Express
   async refreshState(): Promise<void> {
     try {
       this.errorMessage.set(null);
-      const res = await fetch("/api/agent-state");
-      if (!res.ok) throw new Error("Failed to read server state");
-      const data = await res.json() as DBState;
+      const data = await this.safeFetch<DBState>("/api/agent-state");
       this.appState.set(data);
     } catch (err: unknown) {
       this.errorMessage.set(this.getErrMsg(err));
@@ -295,18 +322,12 @@ export class App implements OnDestroy {
       this.isLoading.set(true);
       this.errorMessage.set(null);
       
-      const res = await fetch("/api/init-mission", {
+      const data = await this.safeFetch<DBState>("/api/init-mission", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ objective }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json() as { error?: string };
-        throw new Error(errData?.error || "Planning subengine failed");
-      }
-
-      const data = await res.json() as DBState;
       this.appState.set(data);
     } catch (err: unknown) {
       this.errorMessage.set(this.getErrMsg(err));
@@ -324,16 +345,10 @@ export class App implements OnDestroy {
       this.isStepping.set(true);
       this.errorMessage.set(null);
 
-      const res = await fetch("/api/step-mission", {
+      const data = await this.safeFetch<DBState>("/api/step-mission", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        const errData = data as unknown as { error?: string };
-        throw new Error(errData?.error || "Task execution failed");
-      }
 
       this.appState.set(data);
       
@@ -353,17 +368,11 @@ export class App implements OnDestroy {
   async solveApproval(id: string, approved: boolean): Promise<void> {
     try {
       this.errorMessage.set(null);
-      const res = await fetch("/api/submit-approval", {
+      const data = await this.safeFetch<DBState>("/api/submit-approval", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, approved }),
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        const errData = data as unknown as { error?: string };
-        throw new Error(errData?.error || "Failed to submit clearance decision");
-      }
 
       this.appState.set(data);
     } catch (err: unknown) {
@@ -378,13 +387,11 @@ export class App implements OnDestroy {
 
     try {
       this.isLoading.set(true);
-      const res = await fetch("/api/rag/upload", {
+      await this.safeFetch<{ success: boolean; doc: unknown }>("/api/rag/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      if (!res.ok) throw new Error("Ingestion pipeline failed");
 
       this.uploadSuccess.set(`Successfully ingested document "${body.filename || ''}" into dynamic RAG indexes.`);
       this.ragForm.reset({ type: "text/plain" });
@@ -407,13 +414,11 @@ export class App implements OnDestroy {
 
     try {
       this.isLoading.set(true);
-      const res = await fetch("/api/memories/create", {
+      await this.safeFetch<unknown>("/api/memories/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, type, tags }),
       });
-
-      if (!res.ok) throw new Error("Cognitive insertion failed");
 
       this.memoryForm.reset({ type: "episodic", tagsCsv: "custom, manual" });
       await this.refreshState();
@@ -427,12 +432,10 @@ export class App implements OnDestroy {
   // Wipe vector memory index
   async clearMemories(): Promise<void> {
     try {
-      const res = await fetch("/api/memories/clear", { method: "POST" });
-      if (res.ok) {
-        await this.refreshState();
-        this.uploadSuccess.set("Long-term semantic ledger cleared successfully.");
-        setTimeout(() => this.uploadSuccess.set(null), 4000);
-      }
+      await this.safeFetch<{ success: boolean }>("/api/memories/clear", { method: "POST" });
+      await this.refreshState();
+      this.uploadSuccess.set("Long-term semantic ledger cleared successfully.");
+      setTimeout(() => this.uploadSuccess.set(null), 4000);
     } catch {
       this.errorMessage.set("Purging memory ledger failed.");
     }
@@ -443,20 +446,17 @@ export class App implements OnDestroy {
     this.isAutoStepping.set(false);
     this.isAutoSteppingAutonomous.set(false);
     try {
-      const res = await fetch("/api/reset", { method: "POST" });
-      if (res.ok) {
-        const state = await res.json() as DBState;
-        this.appState.set(state);
-        this.missionForm.reset();
-        this.autonomousForm.reset({
-          goal: "",
-          industry: "Tech",
-          outputType: "MVP Specs",
-          priority: "Medium"
-        });
-        this.uploadSuccess.set("Aetheris System Reboot complete. Real-time buffers flushed.");
-        setTimeout(() => this.uploadSuccess.set(null), 4000);
-      }
+      const state = await this.safeFetch<DBState>("/api/reset", { method: "POST" });
+      this.appState.set(state);
+      this.missionForm.reset();
+      this.autonomousForm.reset({
+        goal: "",
+        industry: "Tech",
+        outputType: "MVP Specs",
+        priority: "Medium"
+      });
+      this.uploadSuccess.set("Aetheris System Reboot complete. Real-time buffers flushed.");
+      setTimeout(() => this.uploadSuccess.set(null), 4000);
     } catch {
       this.errorMessage.set("Operation reset pipeline crashed.");
     }
@@ -503,16 +503,11 @@ export class App implements OnDestroy {
       this.isLoading.set(true);
       this.errorMessage.set(null);
 
-      const res = await fetch("/api/autonomous/run", {
+      const data = await this.safeFetch<DBState>("/api/autonomous/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        throw new Error((data as unknown as { error?: string })?.error || "Strategic autonomous planning failed");
-      }
 
       this.appState.set(data);
       // Auto-step immediately!
@@ -533,15 +528,10 @@ export class App implements OnDestroy {
       this.isStepping.set(true);
       this.errorMessage.set(null);
 
-      const res = await fetch("/api/autonomous/step", {
+      const data = await this.safeFetch<DBState>("/api/autonomous/step", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        throw new Error((data as unknown as { error?: string })?.error || "Agent step execution failed");
-      }
 
       this.appState.set(data);
 
@@ -566,15 +556,10 @@ export class App implements OnDestroy {
       this.isLoading.set(true);
       this.errorMessage.set(null);
 
-      const res = await fetch("/api/autonomous/complete-safety", {
+      const data = await this.safeFetch<DBState>("/api/autonomous/complete-safety", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        throw new Error((data as unknown as { error?: string })?.error || "Safety clearance failed");
-      }
 
       this.appState.set(data);
     } catch (err: unknown) {
@@ -591,15 +576,10 @@ export class App implements OnDestroy {
       this.isLoading.set(true);
       this.errorMessage.set(null);
 
-      const res = await fetch("/api/autonomous/reset", {
+      const data = await this.safeFetch<DBState>("/api/autonomous/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-
-      const data = await res.json() as DBState;
-      if (!res.ok) {
-        throw new Error((data as unknown as { error?: string })?.error || "Failed to restore state");
-      }
 
       this.appState.set(data);
       this.autonomousForm.reset({
@@ -803,13 +783,11 @@ export class App implements OnDestroy {
     try {
       this.isLoading.set(true);
       this.errorMessage.set(null);
-      const res = await fetch("/api/history/open", {
+      const data = await this.safeFetch<DBState>("/api/history/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: item.id })
       });
-      if (!res.ok) throw new Error("Failed to load historical database record");
-      const data = await res.json() as DBState;
       this.appState.set(data);
       this.activeTab.set("mission-control");
       this.isInvestorMode.set(false);
@@ -826,13 +804,11 @@ export class App implements OnDestroy {
     event.stopPropagation();
     try {
       this.isLoading.set(true);
-      const res = await fetch("/api/history/delete", {
+      const data = await this.safeFetch<DBState>("/api/history/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id })
       });
-      if (!res.ok) throw new Error("Failed to delete from ledger");
-      const data = await res.json() as DBState;
       this.appState.set(data);
       if (this.selectedHistoryMission()?.id === id) {
         this.selectedHistoryMission.set(null);

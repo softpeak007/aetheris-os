@@ -2,16 +2,64 @@ import { GoogleGenAI } from "@google/genai";
 import * as fs from "node:fs";
 import { join } from "node:path";
 
-// Initialize Gemini Client with standard telemetry headers and recommended configuration
-const apiKey = process.env["GEMINI_API_KEY"] || "dummy_key";
-const ai = new GoogleGenAI({
-  apiKey: apiKey === "dummy_key" ? "" : apiKey,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+let aiClient: GoogleGenAI | null = null;
+let lastApiKey: string | null = null;
+
+/**
+ * Lazy initializer for Google GenAI Client
+ */
+export function getGeminiClient(): GoogleGenAI {
+  const key = process.env["GEMINI_API_KEY"];
+  if (!key || key.trim() === "" || key === "dummy_key" || key === "MY_GEMINI_API_KEY") {
+    throw new Error("GEMINI_API_KEY is not configured in environment variables. Please provide it in the Settings > Secrets panel.");
+  }
+  
+  if (!aiClient || lastApiKey !== key) {
+    aiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+    lastApiKey = key;
+  }
+  return aiClient;
+}
+
+/**
+ * Wraps call in a retry mechanism with exponential backoff for transient API errors (e.g. 503, 429).
+ */
+export async function generateContentWithRetry(
+  params: Parameters<GoogleGenAI["models"]["generateContent"]>[0],
+  maxRetries = 3,
+  initialDelay = 1000
+): Promise<Awaited<ReturnType<GoogleGenAI["models"]["generateContent"]>>> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await getGeminiClient().models.generateContent(params);
+    } catch (error: unknown) {
+      attempt++;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check if transient error
+      const is503 = errorMessage.includes("503") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("high demand") || errorMessage.includes("Service Unavailable");
+      const is429 = errorMessage.includes("429") || errorMessage.includes("rate limit") || errorMessage.includes("exhausted");
+      const isTransient = is503 || is429;
+
+      if (isTransient && attempt <= maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt - 1);
+        console.warn(`[Gemini Retry] Attempt ${attempt} failed with transient error: ${errorMessage}. Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+}
 
 export interface Epic {
   id: string;
@@ -499,7 +547,7 @@ Return the response strictly as a JSON object of this exact schema:
 
 Only return clean parseable JSON. Do not write any markdown outside of JSON.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -670,7 +718,7 @@ Return the response strictly as a JSON object matching this schema:
 
 Do not return any markdown beside parseable JSON.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -767,7 +815,7 @@ Return the response strictly as a JSON object matching this schema:
 
 Do not return any markdown beside parseable JSON.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -907,7 +955,7 @@ Please return this strictly as a JSON object matching this schema:
 Do not return any markdown besides parseable JSON.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry({
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {

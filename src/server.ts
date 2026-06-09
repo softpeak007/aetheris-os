@@ -12,9 +12,33 @@ const browserDistFolder = join(import.meta.dirname, '../browser');
 const app = express();
 const angularApp = new AngularNodeAppEngine();
 
+// CORS Support (lightweight, zero dependency)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-goog-api-key");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // Register JSON and URL encoders
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+
+// API Key missing validator middleware to protect endpoints calling Gemini
+const checkApiKey = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const key = process.env["GEMINI_API_KEY"];
+  if (!key || key.trim() === "" || key === "dummy_key" || key === "MY_GEMINI_API_KEY") {
+    res.status(401).json({
+      error: "GEMINI_API_KEY is not configured in your environment. Please define it in your Secrets configuration panel (Settings > Secrets) in Google AI Studio before launching standard or autonomous missions."
+    });
+    return;
+  }
+  next();
+};
 
 import {
   Store,
@@ -180,7 +204,7 @@ app.get("/api/agent-state", (req, res) => {
 });
 
 // Trigger new mission planning based on objective
-app.post("/api/init-mission", async (req, res) => {
+app.post("/api/init-mission", checkApiKey, async (req, res) => {
   const { objective } = req.body;
   if (!objective || typeof objective !== "string" || objective.trim() === "") {
     res.status(400).json({ error: "Mission objective is required" });
@@ -250,7 +274,7 @@ interface BackgroundGeneration {
 let backgroundCache: BackgroundGeneration | null = null;
 
 // Autonomous Mission Mode: Initialize and compile whole execution plan
-app.post("/api/autonomous/run", (req, res) => {
+app.post("/api/autonomous/run", checkApiKey, (req, res) => {
   const { goal, industry, outputType, priority } = req.body;
   if (!goal || typeof goal !== "string" || goal.trim() === "") {
     res.status(400).json({ error: "Mission goal is required" });
@@ -589,7 +613,7 @@ app.post("/api/autonomous/reset", (req, res) => {
 });
 
 // Step through the active mission
-app.post("/api/step-mission", async (req, res) => {
+app.post("/api/step-mission", checkApiKey, async (req, res) => {
   try {
     const state = Store.get();
     if (state.missionStatus !== "running") {
@@ -1003,6 +1027,18 @@ app.post("/api/workflows", (req, res) => {
   } catch {
     res.status(500).json({ error: "Failed to update orchestrator workflows" });
   }
+});
+
+// Global Unhandled JSON Error Handler Middleware
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled Exception caught by Global handler:", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err.status || err.statusCode || 500).json({
+    error: err.message || "An unexpected system exception occurred on the backend operative."
+  });
 });
 
 /**
